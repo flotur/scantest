@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Сканер автозапчастей</title>
-    <!-- Библиотека для сканирования штрихкодов через камеру -->
-    <script src="https://unpkg.com/@zxing/library@latest"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -21,7 +19,6 @@
             flex-direction: column;
             align-items: center;
         }
-        /* Кнопка СКАН сверху */
         .scan-btn {
             width: 100%;
             max-width: 500px;
@@ -35,13 +32,10 @@
             cursor: pointer;
             margin-bottom: 20px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            transition: background 0.2s;
         }
         .scan-btn:active {
             background-color: #5a6268;
         }
-
-        /* Область камеры */
         #reader-container {
             width: 100%;
             max-width: 500px;
@@ -55,6 +49,7 @@
         video {
             width: 100% !important;
             height: auto !important;
+            display: block;
             border-radius: 12px;
         }
         .close-camera {
@@ -69,8 +64,6 @@
             cursor: pointer;
             z-index: 10;
         }
-
-        /* Индикатор загрузки */
         #loader {
             display: none;
             text-align: center;
@@ -78,8 +71,6 @@
             color: #adb5bd;
             margin: 20px 0;
         }
-
-        /* Контейнер результатов (зеленые блоки) */
         #results-container {
             width: 100%;
             max-width: 500px;
@@ -87,23 +78,15 @@
             flex-direction: column;
             gap: 12px;
         }
-
         .result-card {
             display: flex;
             align-items: center;
-            background-color: #2b4d27; /* Зеленый оттенок */
+            background-color: #2b4d27;
             border: 2px solid #3d6b38;
             border-radius: 12px;
             overflow: hidden;
             box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-            transition: transform 0.1s, background-color 0.2s;
         }
-        .result-card:active {
-            transform: scale(0.98);
-            background-color: #355e31;
-        }
-
-        /* Кликабельная зона с текстом запчасти */
         .result-info {
             flex-grow: 1;
             padding: 16px;
@@ -119,8 +102,6 @@
             font-size: 13px;
             color: #d4edda;
         }
-
-        /* Блок управления количеством справа */
         .quantity-control {
             display: flex;
             flex-direction: column;
@@ -146,8 +127,6 @@
             color: white;
             margin: 2px 0;
         }
-
-        /* Статус отправки */
         #status-msg {
             margin-top: 15px;
             text-align: center;
@@ -158,74 +137,94 @@
 </head>
 <body>
 
-    <!-- Кнопка СКАН -->
     <button class="scan-btn" onclick="startScanner()">СКАН</button>
 
-    <!-- Опеределитель камеры -->
     <div id="reader-container">
         <button class="close-camera" onclick="stopScanner()">Закрыть</button>
-        <video id="video"></video>
+        <video id="video" autoplay playsinline muted></video>
     </div>
 
     <div id="loader">Ищем варианты в интернете...</div>
     <div id="status-msg"></div>
-
-    <!-- Список найденных вариантов -->
     <div id="results-container"></div>
 
     <script>
-        // ЗАМЕНИТЕ НА URL ВАШЕГО РАЗВЕРНУТОГО GOOGLE APPS SCRIPT ВЕБХУКА
+        // ВСТАВЬТЕ СЮДА ССЫЛКУ НА ВАШ GOOGLE APPS SCRIPT ВЕБХУК
         const WEBHOOK_URL = "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec";
 
-        let codeReader = null;
-        let isScanning = false;
+        let videoStream = null;
+        let scanningInterval = null;
+        let barcodeDetector = null;
 
-        // Запуск сканирования
-        function startScanner() {
+        async function startScanner() {
             document.getElementById('results-container').innerHTML = '';
             document.getElementById('status-msg').innerText = '';
             document.getElementById('reader-container').style.display = 'block';
 
-            if (!codeReader) {
-                codeReader = new ZXing.BrowserMultiFormatReader();
+            // Проверяем поддержку встроенного мощного сканера в браузере
+            if (!('BarcodeDetector' in window)) {
+                alert("Ваш браузер не поддерживает встроенный BarcodeDetector. Обновите Chrome на телефоне.");
+                return;
             }
 
-            isScanning = true;
-            codeReader.decodeFromVideoDevice(null, 'video', (result, err) => {
-                if (result && isScanning) {
-                    isScanning = false;
-                    const scannedText = result.getText();
-                    stopScanner();
-                    fetchPartInfo(scannedText);
-                }
-            }).catch(err => {
+            if (!barcodeDetector) {
+                barcodeDetector = new BarcodeDetector({
+                    formats: ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'qr_code']
+                });
+            }
+
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: "environment",
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }
+                });
+                
+                const videoElement = document.getElementById('video');
+                videoElement.srcObject = videoStream;
+                await videoElement.play();
+
+                // Сканируем кадры каждые 150 миллисекунд (моментальный отклик под любым углом)
+                scanningInterval = setInterval(async () => {
+                    try {
+                        const barcodes = await barcodeDetector.detect(videoElement);
+                        if (barcodes.length > 0) {
+                            const scannedText = barcodes[0].rawValue;
+                            stopScanner();
+                            fetchPartInfo(scannedText);
+                        }
+                    } catch (e) {
+                        // Ошибки отдельного кадра игнорируем, чтобы не прерывать процесс
+                    }
+                }, 150);
+
+            } catch (err) {
                 console.error(err);
-                alert("Ошибка доступа к камере: " + err);
-            });
+                alert("Не удалось запустить камеру: " + err);
+            }
         }
 
-        // Остановка сканера
         function stopScanner() {
-            isScanning = false;
-            if (codeReader) {
-                codeReader.reset();
+            if (scanningInterval) {
+                clearInterval(scanningInterval);
+                scanningInterval = null;
+            }
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
             }
             document.getElementById('reader-container').style.display = 'none';
         }
 
-        // Запрос к бэкенду/модели за вариантами запчастей
         async function fetchPartInfo(barcode) {
             const loader = document.getElementById('loader');
             const statusMsg = document.getElementById('status-msg');
             loader.style.display = 'block';
-            statusMsg.innerText = `Штрихкод ${barcode} распознан. Ищем данные...`;
+            statusMsg.innerText = `Штрихкод ${barcode} распознан! Ищем данные...`;
 
             try {
-                // Вы можете отправлять штрихкод на ваш Apps Script или собственный сервер, 
-                // который возвращает массив вариантов (например, до 3 штук).
-                // Для примера отправляем POST на ваш же вебхук с флагом поиска вариантов, 
-                // либо используем ваш скрипт.
-                
                 const response = await fetch(WEBHOOK_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -235,12 +234,10 @@
                 const data = await response.json();
                 loader.style.display = 'none';
                 
-                // Ожидаем, что сервер вернет массив items: [{articul, brand, name, applicability}, ...]
                 if (data && data.items && data.items.length > 0) {
                     renderResults(barcode, data.items);
                     statusMsg.innerText = "Выберите нужный вариант из списка:";
                 } else {
-                    // Если сервер вернул один объект или ничего не нашлось, делаем дефолтный вариант
                     renderResults(barcode, [{
                         articul: barcode,
                         brand: "Неизвестно",
@@ -250,17 +247,15 @@
                 }
             } catch (error) {
                 loader.style.display = 'none';
-                // Фоллбек на случай если бэкенд отдал один товар или произошла ошибка сети
                 renderResults(barcode, [{
                     articul: barcode,
                     brand: "Неизвестно",
                     name: "Товар по штрихкоду",
-                    applicability: "Ошибка связи с ИИ"
+                    applicability: "Ошибка связи"
                 }]);
             }
         }
 
-        // Отрисовка зеленых карточек с кнопками плюс/минус
         function renderResults(barcode, items) {
             const container = document.getElementById('results-container');
             container.innerHTML = '';
@@ -284,7 +279,6 @@
             });
         }
 
-        // Изменение количества плюсом / минусом
         function changeQty(index, delta) {
             const qtySpan = document.getElementById(`qty-${index}`);
             let currentQty = parseInt(qtySpan.innerText);
@@ -293,7 +287,6 @@
             qtySpan.innerText = currentQty;
         }
 
-        // Отправка выбранного варианта в Google Таблицу и автоматический перезапуск камеры
         async function sendToSheet(barcode, articul, brand, name, applicability, index) {
             const qty = document.getElementById(`qty-${index}`).innerText;
             const statusMsg = document.getElementById('status-msg');
@@ -319,10 +312,9 @@
                 statusMsg.innerText = "Успешно отправлено!";
                 document.getElementById('results-container').innerHTML = '';
 
-                // Автоматически сразу открываем камеру для нового сканирования
                 setTimeout(() => {
                     startScanner();
-                }, 500);
+                }, 400);
 
             } catch (e) {
                 statusMsg.innerText = "Ошибка отправки: " + e.toString();
