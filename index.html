@@ -149,7 +149,7 @@
     <div id="results-container"></div>
 
     <script>
-        // ВСТАВЬТЕ СЮДА ССЫЛКУ НА ВАШ GOOGLE APPS SCRIPT ВЕБХУК
+        // ССЫЛКА НА GOOGLE APPS SCRIPT
         const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxEC2SWFsYT36GmW16xxS9Ey-2tDJgGrVkR5FomNZ4oDY7Fl4HG8ZaOj9RKFd-Ml7_v/exec";
 
         let videoStream = null;
@@ -161,7 +161,6 @@
             document.getElementById('status-msg').innerText = '';
             document.getElementById('reader-container').style.display = 'block';
 
-            // Проверяем поддержку встроенного мощного сканера в браузере
             if (!('BarcodeDetector' in window)) {
                 alert("Ваш браузер не поддерживает встроенный BarcodeDetector. Обновите Chrome на телефоне.");
                 return;
@@ -186,7 +185,6 @@
                 videoElement.srcObject = videoStream;
                 await videoElement.play();
 
-                // Сканируем кадры каждые 150 миллисекунд (моментальный отклик под любым углом)
                 scanningInterval = setInterval(async () => {
                     try {
                         const barcodes = await barcodeDetector.detect(videoElement);
@@ -196,7 +194,7 @@
                             fetchPartInfo(scannedText);
                         }
                     } catch (e) {
-                        // Ошибки отдельного кадра игнорируем, чтобы не прерывать процесс
+                        // Игнорируем ошибки отдельного кадра
                     }
                 }, 150);
 
@@ -225,9 +223,10 @@
             statusMsg.innerText = `Штрихкод ${barcode} распознан! Ищем данные...`;
 
             try {
+                // Используем text/plain, чтобы избежать блоков CORS предварительными запросами браузера
                 const response = await fetch(WEBHOOK_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify({ action: "search", barcode: barcode })
                 });
                 
@@ -246,12 +245,13 @@
                     }]);
                 }
             } catch (error) {
+                console.error("Fetch error:", error);
                 loader.style.display = 'none';
                 renderResults(barcode, [{
                     articul: barcode,
                     brand: "Неизвестно",
                     name: "Товар по штрихкоду",
-                    applicability: "Ошибка связи"
+                    applicability: "Ошибка связи: " + error.message
                 }]);
             }
         }
@@ -264,8 +264,14 @@
                 const card = document.createElement('div');
                 card.className = 'result-card';
 
+                // Экранирование строк от кавычек
+                const safeArticul = String(item.articul || '').replace(/'/g, "\\'");
+                const safeBrand = String(item.brand || '').replace(/'/g, "\\'");
+                const safeName = String(item.name || '').replace(/'/g, "\\'");
+                const safeApplicability = String(item.applicability || '').replace(/'/g, "\\'");
+
                 card.innerHTML = `
-                    <div class="result-info" onclick="sendToSheet('${barcode}', \`${item.articul}\`, \`${item.brand}\`, \`${item.name}\`, \`${item.applicability}\`, ${index})">
+                    <div class="result-info" onclick="sendToSheet('${barcode}', '${safeArticul}', '${safeBrand}', '${safeName}', '${safeApplicability}', ${index})">
                         <div class="part-name">${item.brand} — ${item.name}</div>
                         <div class="part-details">Артикул: ${item.articul} | Применимость: ${item.applicability}</div>
                     </div>
@@ -305,7 +311,7 @@
             try {
                 await fetch(WEBHOOK_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify(payload)
                 });
 
@@ -314,7 +320,7 @@
 
                 setTimeout(() => {
                     startScanner();
-                }, 400);
+                }, 800);
 
             } catch (e) {
                 statusMsg.innerText = "Ошибка отправки: " + e.toString();
