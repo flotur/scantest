@@ -223,10 +223,9 @@
             statusMsg.innerText = `Штрихкод ${barcode} распознан! Ищем данные...`;
 
             try {
-                // Используем text/plain, чтобы избежать блоков CORS предварительными запросами браузера
+                // Заголовки удалены, чтобы браузер не отправлял CORS preflight (OPTIONS) запрос
                 const response = await fetch(WEBHOOK_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify({ action: "search", barcode: barcode })
                 });
                 
@@ -309,9 +308,9 @@
             };
 
             try {
+                // Заголовки удалены, чтобы браузер не отправлял CORS preflight (OPTIONS) запрос
                 await fetch(WEBHOOK_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify(payload)
                 });
 
